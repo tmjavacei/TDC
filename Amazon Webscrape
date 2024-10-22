@@ -1,0 +1,126 @@
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from datetime import datetime
+
+
+def clean_price(price_str):
+    """Convert price string to integer, return 0 if not convertible."""
+    try:
+       
+        price_str = price_str.replace('$', '').replace(',', '').strip()
+        return int(price_str)
+    except ValueError:
+        return 0  
+
+
+def scrape_amazon_product(search_query):
+    search_query = '+'.join(search_query.split())
+    url = f'https://www.amazon.com/s?k={search_query}'
+
+    options = webdriver.ChromeOptions()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.get(url)
+
+    try:
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div[data-component-type="s-search-result"]'))
+        )
+    except Exception as e:
+        print(f"Error loading page for '{search_query}': {e}")
+        driver.quit()
+        return []
+
+    products = []
+
+    items = driver.find_elements(By.CSS_SELECTOR, 'div[data-component-type="s-search-result"]')
+    for item in items:
+        title = item.find_element(By.TAG_NAME, 'h2').text.strip()
+        try:
+            price_str = item.find_element(By.CSS_SELECTOR, '.a-price-whole').text.strip()
+            price = clean_price(price_str)
+        except:
+            price = 0  
+
+        specifications = item.find_elements(By.CSS_SELECTOR, '.a-row.a-size-base.a-color-secondary')
+        specs_text = [spec.text for spec in specifications if spec.text]
+        
+        products.append({
+            'title': title,
+            'price': price,
+            'specifications': ', '.join(specs_text) if specs_text else 'No specifications available'
+        })
+
+    driver.quit()
+    return products
+
+# List of specific products to search for
+product_names = [
+    "Echo Pop Charcoal",
+    "Echo Pop Midnight Teal",
+    "Echo Pop Lavender Bloom",
+    "Echo Pop Glacier White",
+    "Echo Pop Kids - Disney Princess",
+    "Echo Pop Kids - Marvel's Avengers",
+    "Echo Show 15",
+    "Echo Show 10",
+    "Echo Show 8",
+    "Echo Show 5",
+    "Echo Dot 5 Deep Sea Blue",
+    "Echo Dot 5 Charcoal",
+    "Echo Dot 5 Glacier White",
+    "Echo Dot Kids Fire Dragon",
+    "Echo Dot Kids Owl",
+    "Echo Dot Kids Panda",
+    "Echo Spot (2024 release) - Black",
+    "Echo Spot (2024 release) - Glacier White",
+    "Echo Spot (2024 release) - Ocean Blue",
+    "Echo Studio Charcoal",
+    "Echo Studio Glacier White",
+    "Echo Hub",
+    "Echo Glow",
+    "Echo Buds",
+    "Echo Auto"
+]
+
+
+excel_file_path = '/Users/theajava/Library/CloudStorage/OneDrive-Tito\'sDepot/Precios/Amazon/amazon_products.xlsx'
+
+
+if __name__ == "__main__":
+    all_products = []
+    for product in product_names:
+        print(f"Searching for: {product}")
+        product_list = scrape_amazon_product(product)
+        all_products.extend(product_list)
+
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for product in all_products:
+        product['timestamp'] = timestamp
+
+   
+    df = pd.DataFrame(all_products)
+
+   
+    try:
+        existing_data = pd.read_excel(excel_file_path)
+    except FileNotFoundError:
+        print(f"{excel_file_path} not found. Creating a new file.")
+        existing_data = pd.DataFrame()
+
+    
+    df = pd.concat([existing_data, df], ignore_index=True)
+
+    # Save to Excel
+    df.to_excel(excel_file_path, index=False)
+
+    print("Data has been updated in the Excel file with new entries.")
